@@ -1,35 +1,36 @@
-// Save game: cash, the unlocked job and finished jobs live in localStorage.
-// Nothing leaves the machine; a fresh browser starts Dana on job 1 with $0.
+// Saving: money and missions completed live in localStorage, so Dana can
+// come back to Coral Bay and keep her progress.
+
 const KEY = 'coral-bay-save-v1';
 
 export function loadSave() {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return { money: 0, job: 0, finished: [] };
+    const raw = window.localStorage.getItem(KEY);
+    if (!raw) return null;
     const data = JSON.parse(raw);
-    return {
-      money: typeof data.money === 'number' ? data.money : 0,
-      job: typeof data.job === 'number' ? data.job : 0,
-      finished: Array.isArray(data.finished) ? data.finished : [],
-    };
-  } catch (_) {
-    return { money: 0, job: 0, finished: [] };
+    if (typeof data.money !== 'number' || typeof data.missionsDone !== 'number') return null;
+    return data;
+  } catch (e) {
+    return null;
   }
 }
 
-export function saveSave(data) {
+export function writeSave(world) {
   try {
-    localStorage.setItem(KEY, JSON.stringify({
-      money: data.money | 0,
-      job: data.job | 0,
-      finished: data.finished || [],
+    window.localStorage.setItem(KEY, JSON.stringify({
+      money: world.money,
+      missionsDone: world.missions ? world.missions.index : 0,
+      savedAt: Date.now(),
     }));
-  } catch (_) {
-    // Storage full or blocked (private mode): the game still plays, it just
-    // does not remember. A save failure must never stop the game.
+  } catch (e) {
+    // Private mode or a full store: the game plays on without saving.
   }
 }
 
 export function clearSave() {
-  try { localStorage.removeItem(KEY); } catch (_) { /* ignore */ }
+  try {
+    window.localStorage.removeItem(KEY);
+  } catch (e) {
+    // Nothing to clear.
+  }
 }

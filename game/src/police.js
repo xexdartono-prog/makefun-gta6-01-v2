@@ -1,109 +1,115 @@
-// The wanted system: a 0–5 star level. Crimes raise it; cop cars spawn at the
-// city edge and chase the player down, ramming the getaway car or cornering
-// Dana on foot. Keep quiet and out of sight and the heat slowly cools off.
+// The Coral Bay police: patrol cars that spawn at the city edge when Dana is
+// wanted, chase her down, ram her car, and give up when the heat dies down.
+
 import * as THREE from 'three';
-import { Vehicle } from './vehicles.js';
-import { HALF } from './city.js';
+import { makeCarMesh, pushOutOfColliders } from './cars.js';
+import { ROADS, LAYOUT } from './city.js';
 
-export class Police {
-  constructor(scene, city) {
-    this.scene = scene;
-    this.city = city;
-    this.wanted = 0;
-    this.cops = [];
-    this.quietTimer = 0;  // seconds since the last crime
-    this.coolTimer = 0;   // counts down to losing a star
-    this.spawnTimer = 0;
-    this.sirenOn = false;
-  }
+const MAX_COPS = 4;
 
-  addWanted(n) {
-    this.wanted = Math.max(0, Math.min(5, this.wanted + n));
-    this.quietTimer = 0;
-    this.coolTimer = 12;
-    if (this.wanted > 0) this.sirenOn = true;
-  }
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
-  setWanted(n) {
-    this.wanted = Math.max(0, Math.min(5, n));
-    this.quietTimer = 0;
-    this.coolTimer = 12;
-    this.sirenOn = this.wanted > 0;
-  }
+export function addWanted(world, n) {
+  world.wanted = Math.max(0, Math.min(5, world.wanted + n));
+  world.wantedTimer = 0;
+}
 
-  // One cop car per star, up to five, spawned at the city edge.
-  syncCopCount() {
-    while (this.cops.length < this.wanted) {
-      const edge = Math.floor(Math.random() * 4);
-      let x = 0;
-      let z = 0;
-      if (edge === 0) { x = -HALF - 4; z = (Math.random() * 2 - 1) * HALF; }
-      if (edge === 1) { x = HALF + 4; z = (Math.random() * 2 - 1) * HALF; }
-      if (edge === 2) { x = (Math.random() * 2 - 1) * HALF; z = -HALF - 4; }
-      if (edge === 3) { x = (Math.random() * 2 - 1) * HALF; z = HALF + 20; }
-      const cop = new Vehicle(this.scene, x, z, 0, 0x1b263b, { police: true });
-      cop.cruise = 0;
-      this.cops.push(cop);
+function spawnCop(world) {
+  const rand = world.copRand;
+  const edge = Math.floor(rand() * 4);
+  const road = ROADS[Math.floor(rand() * ROADS.length)];
+  let x, z;
+  if (edge === 0) { x = road; z = LAYOUT.min + 6; }
+  else if (edge === 1) { x = road; z = LAYOUT.max - 6; }
+  else if (edge === 2) { x = LAYOUT.min + 6; z = road; }
+  else { x = LAYOUT.max - 6; z = road; }
+  const cop = {
+    mesh: makeCarMesh(0x1e2a3a, true),
+    pos: new THREE.Vector3(x, 0, z),
+    heading: 0,
+    speed: 0,
+    kind: 'police',
+    driver: null,
+  };
+  world.scene.add(cop.mesh);
+  world.cars.push(cop);
+  world.cops.push(cop);
+  return cop;
+}
+
+export function updatePolice(world, dt) {
+  const target = world.player.car ? world.player.car.pos : world.player.pos;
+  const targetSpeed = world.player.car ? Math.abs(world.player.car.speed) : world.player.walkSpeed;
+
+  // More stars, more cars on the tail — up to four.
+  const want = world.wanted > 0 ? Math.min(MAX_COPS, 1 + Math.floor(world.wanted / 2)) : 0;
+  while (world.cops.length < want) spawnCop(world);
+
+  // Heat fades when no cop can see Dana for a while.
+  if (world.wanted > 0) {
+    let nearest = Infinity;
+    for (const cop of world.cops) {
+      nearest = Math.min(nearest, Math.hypot(cop.pos.x - target.x, cop.pos.z - target.z));
     }
-    while (this.cops.length > this.wanted) {
-      const cop = this.cops.pop();
-      this.scene.remove(cop.group);
-    }
-  }
-
-  // dt seconds. target: {pos, inCar, speed}. Returns 'busted' when a cop
-  // corners Dana on foot; onRam fires with the impact speed on a car hit.
-  update(dt, target, vehicles, onRam) {
-    this.quietTimer += dt;
-    if (this.wanted > 0 && this.quietTimer > 20) {
-      this.coolTimer -= dt;
-      if (this.coolTimer <= 0) {
-        this.wanted -= 1;
-        this.coolTimer = 12;
-        this.quietTimer = 0;
-        if (this.wanted === 0) this.sirenOn = false;
+    if (nearest > 70 && targetSpeed < 3) {
+      world.wantedTimer += dt;
+      if (world.wantedTimer > 14) {
+        addWanted(world, -1);
+        world.hud.toast('The heat is cooling off…');
       }
+    } else {
+      world.wantedTimer = 0;
     }
-    this.syncCopCount();
-
-    for (const cop of this.cops) {
-      const dx = target.pos.x - cop.pos.x;
-      const dz = target.pos.z - cop.pos.z;
-      const dist = Math.hypot(dx, dz);
-      const wantHeading = Math.atan2(dx, dz);
-      let diff = wantHeading - cop.heading;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      cop.heading += Math.max(-2.4 * dt, Math.min(2.4 * dt, diff));
-      // Cops are quick but not unfair: a touch slower than a full-speed getaway.
-      const chaseSpeed = this.wanted >= 4 ? 27 : 23;
-      cop.speed += (chaseSpeed - cop.speed) * Math.min(1, dt * 1.4);
-      const f = cop.forward();
-      cop.pos.x += f.x * cop.speed * dt;
-      cop.pos.z += f.z * cop.speed * dt;
-      cop.sync();
-
-      if (dist < 3.4) {
-        if (target.inCar) {
-          if (onRam) onRam(cop.speed);
-          // The ram shoves the player's car sideways and slows the cop down.
-          cop.speed *= 0.4;
-          if (vehicles.playerCar) {
-            vehicles.playerCar.pos.x += f.x * 1.6;
-            vehicles.playerCar.pos.z += f.z * 1.6;
-          }
-        } else if (target.speed < 2.5) {
-          return 'busted';
-        }
-      }
-    }
-    return null;
   }
 
-  clear() {
-    for (const cop of this.cops) this.scene.remove(cop.group);
-    this.cops = [];
-    this.wanted = 0;
-    this.sirenOn = false;
+  for (const cop of [...world.cops]) {
+    if (world.wanted === 0) {
+      // Give up: drive away and despawn at the edge.
+      cop.heading += dt * 0.6;
+      cop.speed = Math.min(cop.speed + 8 * dt, 14);
+      cop.pos.x += Math.sin(cop.heading) * cop.speed * dt;
+      cop.pos.z += Math.cos(cop.heading) * cop.speed * dt;
+      if (Math.abs(cop.pos.x) > 250 || Math.abs(cop.pos.z) > 250) {
+        world.scene.remove(cop.mesh);
+        world.cars.splice(world.cars.indexOf(cop), 1);
+        world.cops.splice(world.cops.indexOf(cop), 1);
+      }
+      cop.mesh.position.copy(cop.pos);
+      cop.mesh.rotation.y = cop.heading;
+      continue;
+    }
+    // Chase: steer toward the player, faster with more stars.
+    const dx = target.x - cop.pos.x;
+    const dz = target.z - cop.pos.z;
+    const dist = Math.hypot(dx, dz);
+    const wantHeading = Math.atan2(dx, dz);
+    let diff = wantHeading - cop.heading;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    cop.heading += Math.max(-2.4 * dt, Math.min(2.4 * dt, diff));
+    const topSpeed = 15 + world.wanted * 2.4;
+    cop.speed = Math.min(cop.speed + 10 * dt, topSpeed);
+    cop.pos.x += Math.sin(cop.heading) * cop.speed * dt;
+    cop.pos.z += Math.cos(cop.heading) * cop.speed * dt;
+    pushOutOfColliders(world, cop.pos, 2.3);
+    // Ramming: hit the player's car, slow it and shake the camera.
+    if (dist < 3.4) {
+      if (world.player.car && Math.abs(world.player.car.speed) > 1) {
+        world.player.car.speed *= 0.55;
+        world.audio.thud();
+        world.shake = 0.45;
+      }
+      cop.speed *= 0.6;
+    }
+    cop.mesh.position.copy(cop.pos);
+    cop.mesh.rotation.y = cop.heading;
   }
 }

@@ -1,19 +1,18 @@
-// CORAL BAY — the gta6-01 hand-in program (Node 22, standard library only).
-// The game is "Coral Bay": an open-world getaway game in a sun-soaked coastal
-// city. Explore on foot and by car, with traffic, pedestrians, car theft, a
-// wanted level with police, three story missions, combat, a HUD with a minimap,
-// a start screen and a save. The game itself is plain static files under game/
-// (game/index.html plus its ES modules, three.js vendored under game/vendor,
-// no network request at run time).
-// This program copies game/ and screenshots/ from beside this file into the
-// output directory and writes dossier.json there with the vendored make.fun
-// library, so the judge can read the game from the dossier alone.
+// CORAL BAY — the entry program for make.fun gta6-01 (Node 22, standard library only).
 //
-// Play it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
+// What it does: it takes the game in game/ (plain static files: the page, its
+// modules, the vendored three.js build) and the screenshots in screenshots/,
+// copies both into the grader's output directory, and writes the dossier the
+// judge reads there with the vendored make.fun library. Outside the grader,
+// MAKEFUN_OUTPUT_DIR stands in for /output, so a local check looks like:
+//
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+//
+// The program must write exactly the same bytes on both of the grader's runs,
+// so it does nothing time- or environment-dependent: no timestamps, no random
+// file order (the copy and the dossier library both walk in path order).
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -21,18 +20,34 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const repoRoot = fileURLToPath(new URL('.', import.meta.url));
 const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
+// The game itself: every static file the browser loads, nothing else.
+const gameSrc = join(repoRoot, 'game');
+const gameDst = join(outDir, 'game');
 mkdirSync(outDir, { recursive: true });
-cpSync(join(repoRoot, 'game'), join(outDir, 'game'), { recursive: true });
-mkdirSync(join(outDir, 'screenshots'), { recursive: true });
-if (existsSync(join(repoRoot, 'screenshots'))) {
-  cpSync(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'), { recursive: true });
+cpSync(gameSrc, gameDst, { recursive: true });
+
+// The screenshots: three or four renders of the game, the first by name the
+// cover. Copy them only when the folder is there, so a missing folder is a
+// dossier error rather than a crash here.
+const shotsSrc = join(repoRoot, 'screenshots');
+const shotsDst = join(outDir, 'screenshots');
+mkdirSync(shotsDst, { recursive: true });
+if (existsSync(shotsSrc)) {
+  cpSync(shotsSrc, shotsDst, { recursive: true });
 }
 
-// The scorer's caps (reference/gate.json): text_max_bytes shapes the dossier's
-// text; the rest refuse an entry the scorer would refuse — more than 4 screenshots
-// or one over 256 KiB, more than 993 files or 48 MiB under game/, or a game/ path
-// over 1000 bytes. game/ counts beside /output's own 1000-entry cap, together
-// with screenshots/ and dossier.json.
+// Refuse loudly when a run would hand in an empty or unreadable game folder,
+// instead of writing a dossier that names no game at all.
+if (!existsSync(join(gameDst, 'index.html'))) {
+  throw new Error('CORAL BAY: game/index.html is missing, refusing to write a dossier');
+}
+const shotFiles = readdirSync(shotsDst).filter((n) => !n.startsWith('.'));
+if (shotFiles.length < 3 || shotFiles.length > 4) {
+  throw new Error(`CORAL BAY: expected 3 or 4 screenshots, found ${shotFiles.length}`);
+}
+
+// The dossier, with the bounty gate's caps: text capped at 160 KiB, at most
+// four screenshots of 256 KiB each, game/ at most 993 entries and 48 MiB.
 writeFileSync(
   join(outDir, 'dossier.json'),
   buildDossier(outDir, {

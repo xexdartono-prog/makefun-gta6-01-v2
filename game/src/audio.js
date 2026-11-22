@@ -1,160 +1,102 @@
-// Procedural sound, no audio files: every effect is an oscillator or a burst
-// of filtered noise from the Web Audio API. Everything starts on the first
-// user gesture (the Start button), so autoplay rules never get in the way.
-export class AudioSys {
+// Sound, all procedural WebAudio — no audio files. An engine hum that
+// follows speed, a two-tone siren while wanted, blips and thuds.
+
+export class SoundEngine {
   constructor() {
     this.ctx = null;
-    this.master = null;
     this.engineOsc = null;
     this.engineGain = null;
     this.sirenOsc = null;
     this.sirenGain = null;
-    this.sirenLfo = null;
-    this.ambientStarted = false;
+    this.sirenHigh = false;
+    this.sirenTimer = 0;
+    this.ready = false;
   }
 
-  ensure() {
-    if (this.ctx) {
-      if (this.ctx.state === 'suspended') this.ctx.resume();
-      return;
-    }
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    this.ctx = new AC();
-    this.master = this.ctx.createGain();
-    this.master.gain.value = 0.5;
-    this.master.connect(this.ctx.destination);
-    this.startAmbient();
-  }
-
-  // A slow warm pad: three detuned triangle waves under a gentle tremolo.
-  startAmbient() {
-    if (this.ambientStarted || !this.ctx) return;
-    this.ambientStarted = true;
-    const padGain = this.ctx.createGain();
-    padGain.gain.value = 0.05;
-    const lfo = this.ctx.createOscillator();
-    lfo.frequency.value = 0.08;
-    const lfoGain = this.ctx.createGain();
-    lfoGain.gain.value = 0.02;
-    lfo.connect(lfoGain);
-    lfoGain.connect(padGain.gain);
-    lfo.start();
-    for (const freq of [110, 164.8, 220]) {
-      const o = this.ctx.createOscillator();
-      o.type = 'triangle';
-      o.frequency.value = freq;
-      o.detune.value = (Math.random() - 0.5) * 6;
-      o.connect(padGain);
-      o.start();
-    }
-    padGain.connect(this.master);
-  }
-
-  // Continuous engine hum; pitch and volume follow the car's speed (0..1).
-  engine(on, speed01) {
-    if (!this.ctx) return;
-    if (on && !this.engineOsc) {
+  // Called from the first user gesture (the Start button), as browsers
+  // require sound to start from an interaction.
+  unlock() {
+    if (this.ready) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AC();
       this.engineOsc = this.ctx.createOscillator();
       this.engineOsc.type = 'sawtooth';
-      this.engineOsc.frequency.value = 70;
+      this.engineOsc.frequency.value = 60;
+      this.engineGain = this.ctx.createGain();
+      this.engineGain.gain.value = 0;
       const filter = this.ctx.createBiquadFilter();
       filter.type = 'lowpass';
-      filter.frequency.value = 900;
-      this.engineGain = this.ctx.createGain();
-      this.engineGain.gain.value = 0.06;
+      filter.frequency.value = 420;
       this.engineOsc.connect(filter);
       filter.connect(this.engineGain);
-      this.engineGain.connect(this.master);
+      this.engineGain.connect(this.ctx.destination);
       this.engineOsc.start();
-    }
-    if (this.engineOsc) {
-      this.engineOsc.frequency.value = 60 + speed01 * 190;
-      this.engineGain.gain.value = on ? 0.05 + speed01 * 0.06 : 0;
-      if (!on) {
-        const osc = this.engineOsc;
-        const gain = this.engineGain;
-        this.engineOsc = null;
-        this.engineGain = null;
-        gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.15);
-        setTimeout(() => { try { osc.stop(); } catch (_) { /* already stopped */ } }, 200);
-      }
-    }
-  }
 
-  // Two-tone police siren: a sine whose pitch wobbles on a square LFO.
-  siren(on) {
-    if (!this.ctx) return;
-    if (on && !this.sirenOsc) {
       this.sirenOsc = this.ctx.createOscillator();
-      this.sirenOsc.type = 'sine';
-      this.sirenOsc.frequency.value = 750;
-      this.sirenLfo = this.ctx.createOscillator();
-      this.sirenLfo.type = 'square';
-      this.sirenLfo.frequency.value = 0.9;
-      const lfoGain = this.ctx.createGain();
-      lfoGain.gain.value = 260;
-      this.sirenLfo.connect(lfoGain);
-      lfoGain.connect(this.sirenOsc.frequency);
+      this.sirenOsc.type = 'triangle';
+      this.sirenOsc.frequency.value = 700;
       this.sirenGain = this.ctx.createGain();
-      this.sirenGain.gain.value = 0.035;
+      this.sirenGain.gain.value = 0;
       this.sirenOsc.connect(this.sirenGain);
-      this.sirenGain.connect(this.master);
+      this.sirenGain.connect(this.ctx.destination);
       this.sirenOsc.start();
-      this.sirenLfo.start();
-    } else if (!on && this.sirenOsc) {
-      const o = this.sirenOsc;
-      const l = this.sirenLfo;
-      const g = this.sirenGain;
-      this.sirenOsc = null;
-      this.sirenLfo = null;
-      this.sirenGain = null;
-      g.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.2);
-      setTimeout(() => { try { o.stop(); l.stop(); } catch (_) { /* already stopped */ } }, 250);
+      this.ready = true;
+    } catch (e) {
+      this.ready = false;
     }
   }
 
-  blip(freq, dur, type = 'sine', vol = 0.18) {
-    if (!this.ctx) return;
+  update(world, dt) {
+    if (!this.ready) return;
+    const speed = world.player.car ? Math.abs(world.player.car.speed) : world.player.walkSpeed;
+    const target = world.player.car ? 0.03 + (speed / 26) * 0.05 : 0;
+    this.engineGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.1);
+    this.engineOsc.frequency.setTargetAtTime(55 + speed * 7, this.ctx.currentTime, 0.1);
+    if (world.wanted > 0) {
+      this.sirenGain.gain.setTargetAtTime(0.035, this.ctx.currentTime, 0.2);
+      this.sirenTimer += dt;
+      if (this.sirenTimer > 0.42) {
+        this.sirenTimer = 0;
+        this.sirenHigh = !this.sirenHigh;
+        this.sirenOsc.frequency.setTargetAtTime(this.sirenHigh ? 920 : 700, this.ctx.currentTime, 0.05);
+      }
+    } else {
+      this.sirenGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.2);
+    }
+  }
+
+  blip(freq = 880) {
+    if (!this.ready) return;
     const o = this.ctx.createOscillator();
-    o.type = type;
+    const g = this.ctx.createGain();
+    o.type = 'sine';
     o.frequency.value = freq;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(vol, this.ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+    g.gain.setValueAtTime(0.12, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.18);
     o.connect(g);
-    g.connect(this.master);
+    g.connect(this.ctx.destination);
     o.start();
-    o.stop(this.ctx.currentTime + dur);
+    o.stop(this.ctx.currentTime + 0.2);
   }
 
-  // A short thump: filtered noise decaying fast.
-  punch() {
-    if (!this.ctx) return;
-    const len = this.ctx.sampleRate * 0.12;
-    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
-    const src = this.ctx.createBufferSource();
-    src.buffer = buf;
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 700;
+  sirenBlip() {
+    this.blip(920);
+    setTimeout(() => this.blip(700), 160);
+  }
+
+  thud() {
+    if (!this.ready) return;
+    const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
-    g.gain.value = 0.5;
-    src.connect(filter);
-    filter.connect(g);
-    g.connect(this.master);
-    src.start();
-  }
-
-  chime() {
-    this.blip(660, 0.25, 'sine', 0.2);
-    setTimeout(() => this.blip(880, 0.35, 'sine', 0.2), 110);
-  }
-
-  crash() {
-    this.blip(90, 0.3, 'square', 0.22);
-    this.punch();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(120, this.ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(45, this.ctx.currentTime + 0.18);
+    g.gain.setValueAtTime(0.25, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+    o.connect(g);
+    g.connect(this.ctx.destination);
+    o.start();
+    o.stop(this.ctx.currentTime + 0.22);
   }
 }
