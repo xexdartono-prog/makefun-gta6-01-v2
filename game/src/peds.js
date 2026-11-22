@@ -1,7 +1,6 @@
-// Pedestrians: Coral Bay locals strolling the sidewalks. They walk between random
-// sidewalk points, and they run when a car barrels at them or when Dana throws a
-// punch nearby. A punched local drops to the ground for a few seconds — and
-// sometimes drops a little cash.
+// Coral Bay locals: pedestrians strolling between random sidewalk points.
+// A car barreling at them or a punch nearby sends them running. A punched
+// local drops for a few seconds — and sometimes drops a little cash.
 import * as THREE from 'three';
 import { blockCenter, BLOCK } from './city.js';
 
@@ -17,12 +16,18 @@ export class Pedestrians {
 
   spawn(n) {
     for (let i = 0; i < n; i++) {
-      const bx = Math.floor(this.rand() * 8);
-      const bz = Math.floor(this.rand() * 8);
-      const x = blockCenter(bx) + (this.rand() - 0.5) * (BLOCK - 6);
-      const z = blockCenter(bz) + (this.rand() - 0.5) * (BLOCK - 6);
-      this.list.push(this.makePed(x, z));
+      const spot = this.randomSidewalkSpot();
+      this.list.push(this.makePed(spot.x, spot.z));
     }
+  }
+
+  randomSidewalkSpot() {
+    const bx = Math.floor(this.rand() * 8);
+    const bz = Math.floor(this.rand() * 8);
+    return {
+      x: blockCenter(bx) + (this.rand() - 0.5) * (BLOCK - 6),
+      z: blockCenter(bz) + (this.rand() - 0.5) * (BLOCK - 6),
+    };
   }
 
   makePed(x, z) {
@@ -53,10 +58,18 @@ export class Pedestrians {
     g.position.set(x, 0, z);
     this.scene.add(g);
     return {
-      group: g, pos: g.position, heading: this.rand() * Math.PI * 2,
-      speed: 1.4 + this.rand() * 1.2, state: 'walk', timer: 0,
-      target: new THREE.Vector3(x, 0, z), fallen: false, fallTimer: 0,
-      legL, legR, phase: this.rand() * 6,
+      group: g,
+      pos: g.position,
+      heading: this.rand() * Math.PI * 2,
+      speed: 1.4 + this.rand() * 1.2,
+      state: 'walk',
+      timer: 0,
+      target: new THREE.Vector3(x, 0, z),
+      fallen: false,
+      fallTimer: 0,
+      legL,
+      legR,
+      phase: this.rand() * 6,
     };
   }
 
@@ -69,7 +82,6 @@ export class Pedestrians {
   }
 
   update(dt, threats) {
-    // threats: [{x, z, radius, kind: 'punch'|'car'}] — peds near one start running.
     for (const p of this.list) {
       if (p.fallen) {
         p.fallTimer -= dt;
@@ -81,17 +93,19 @@ export class Pedestrians {
         }
         continue;
       }
-      let fleeing = false;
+
+      // Flee anything threatening that comes close.
+      let scared = false;
       for (const t of threats) {
-        const d = Math.hypot(p.pos.x - t.x, p.pos.z - t.z);
-        if (d < t.radius) {
-          fleeing = true;
+        if (Math.hypot(p.pos.x - t.x, p.pos.z - t.z) < t.radius) {
+          scared = true;
           p.state = 'flee';
           p.timer = 2.5;
           p.fleeFrom = { x: t.x, z: t.z };
           break;
         }
       }
+
       if (p.state === 'flee') {
         p.timer -= dt;
         const dx = p.pos.x - p.fleeFrom.x;
@@ -107,13 +121,8 @@ export class Pedestrians {
         const dz = p.target.z - p.pos.z;
         const d = Math.hypot(dx, dz);
         if (d < 1) {
-          const bx = Math.floor(this.rand() * 8);
-          const bz = Math.floor(this.rand() * 8);
-          p.target.set(
-            blockCenter(bx) + (this.rand() - 0.5) * (BLOCK - 6),
-            0,
-            blockCenter(bz) + (this.rand() - 0.5) * (BLOCK - 6),
-          );
+          const spot = this.randomSidewalkSpot();
+          p.target.set(spot.x, 0, spot.z);
         } else {
           p.heading = Math.atan2(dx / d, dz / d);
           p.pos.x += (dx / d) * p.speed * dt;

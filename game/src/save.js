@@ -1,5 +1,5 @@
-// Save game: money, unlocked job and finished jobs live in localStorage.
-// Nothing leaves the machine; a fresh browser starts Dana from job 1 with $0.
+// Save game: cash, the unlocked job and finished jobs live in localStorage.
+// Nothing leaves the machine; a fresh browser starts Dana on job 1 with $0.
 const KEY = 'coral-bay-save-v1';
 
 export function loadSave() {
@@ -26,7 +26,7 @@ export function saveSave(data) {
     }));
   } catch (_) {
     // Storage full or blocked (private mode): the game still plays, it just
-    // does not remember. Never let a save failure stop the game.
+    // does not remember. A save failure must never stop the game.
   }
 }
 

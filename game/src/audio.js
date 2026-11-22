@@ -1,6 +1,6 @@
-// Procedural sound, no audio files: every effect is an oscillator or filtered
-// noise built with the Web Audio API. Everything starts on the first user gesture
-// (the Start button), so the browser's autoplay rules are never in the way.
+// Procedural sound, no audio files: every effect is an oscillator or a burst
+// of filtered noise from the Web Audio API. Everything starts on the first
+// user gesture (the Start button), so autoplay rules never get in the way.
 export class AudioSys {
   constructor() {
     this.ctx = null;
@@ -27,10 +27,10 @@ export class AudioSys {
     this.startAmbient();
   }
 
+  // A slow warm pad: three detuned triangle waves under a gentle tremolo.
   startAmbient() {
     if (this.ambientStarted || !this.ctx) return;
     this.ambientStarted = true;
-    // A slow, warm pad: two detuned triangle waves under a slow tremolo.
     const padGain = this.ctx.createGain();
     padGain.gain.value = 0.05;
     const lfo = this.ctx.createOscillator();
@@ -51,7 +51,7 @@ export class AudioSys {
     padGain.connect(this.master);
   }
 
-  // Continuous engine hum whose pitch follows the car's speed (0..1).
+  // Continuous engine hum; pitch and volume follow the car's speed (0..1).
   engine(on, speed01) {
     if (!this.ctx) return;
     if (on && !this.engineOsc) {
@@ -82,6 +82,7 @@ export class AudioSys {
     }
   }
 
+  // Two-tone police siren: a sine whose pitch wobbles on a square LFO.
   siren(on) {
     if (!this.ctx) return;
     if (on && !this.sirenOsc) {
@@ -102,8 +103,12 @@ export class AudioSys {
       this.sirenOsc.start();
       this.sirenLfo.start();
     } else if (!on && this.sirenOsc) {
-      const o = this.sirenOsc, l = this.sirenLfo, g = this.sirenGain;
-      this.sirenOsc = null; this.sirenLfo = null; this.sirenGain = null;
+      const o = this.sirenOsc;
+      const l = this.sirenLfo;
+      const g = this.sirenGain;
+      this.sirenOsc = null;
+      this.sirenLfo = null;
+      this.sirenGain = null;
       g.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.2);
       setTimeout(() => { try { o.stop(); l.stop(); } catch (_) { /* already stopped */ } }, 250);
     }
@@ -123,6 +128,7 @@ export class AudioSys {
     o.stop(this.ctx.currentTime + dur);
   }
 
+  // A short thump: filtered noise decaying fast.
   punch() {
     if (!this.ctx) return;
     const len = this.ctx.sampleRate * 0.12;

@@ -1,10 +1,10 @@
 // CORAL BAY — the gta6-01 hand-in program (Node 22, standard library only).
-// Entry: "Coral Bay", an open-world getaway game — a sun-soaked coastal city to
-// explore on foot and by car, with traffic, pedestrians, car theft, a wanted
-// level with police, three story missions, combat, a HUD with a minimap, a start
-// screen and a save.
-// The game itself is plain static files under game/ (game/index.html plus its ES
-// modules, three.js vendored under game/vendor, no network request at run time).
+// The game is "Coral Bay": an open-world getaway game in a sun-soaked coastal
+// city. Explore on foot and by car, with traffic, pedestrians, car theft, a
+// wanted level with police, three story missions, combat, a HUD with a minimap,
+// a start screen and a save. The game itself is plain static files under game/
+// (game/index.html plus its ES modules, three.js vendored under game/vendor,
+// no network request at run time).
 // This program copies game/ and screenshots/ from beside this file into the
 // output directory and writes dossier.json there with the vendored make.fun
 // library, so the judge can read the game from the dossier alone.

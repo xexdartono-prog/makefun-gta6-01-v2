@@ -1,7 +1,7 @@
 // CORAL BAY — bootstrap and the one game loop.
 // Wires the city, Dana, cars, police, missions, HUD, sound and saves together,
-// reads keyboard + mouse, chases the player with a third-person camera, and runs
-// the state machine: menu -> playing -> busted / job complete -> menu.
+// reads keyboard + mouse, chases the player with a third-person camera, and
+// runs the state machine: menu -> playing -> busted / job complete -> menu.
 // In shot mode (?shot=start|drive|mission|chase) the menu is skipped and the
 // game is posed for a screenshot, then window.__shotReady is set.
 import * as THREE from 'three';
@@ -16,9 +16,9 @@ import { AudioSys } from './audio.js';
 import { loadSave, saveSave } from './save.js';
 import { shotFromUrl, applyShot } from './shots.js';
 
-const rand = mulberry32(20261122);
+const rand = mulberry32(20261123);
 
-// --- renderer / scene -------------------------------------------------------
+// --- renderer and scene -----------------------------------------------------
 const app = document.getElementById('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -68,7 +68,7 @@ if (save.job >= 0 && save.job < JOBS.length) missions.startJob(save.job);
 // --- input ------------------------------------------------------------------
 const keys = new Set();
 const input = { f: false, b: false, l: false, r: false, jump: false, punch: false, sprint: false };
-let camYaw = Math.PI;      // camera looks along -Z at start (player faces the car)
+let camYaw = 0; // camera starts behind Dana (she faces -Z, toward the car)
 let camPitch = 0.32;
 let camDist = 10;
 let camHeight = 4.5;
@@ -93,18 +93,25 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') e.preventDefault();
   readKeys();
 });
-window.addEventListener('keyup', (e) => { keys.delete(e.code); readKeys(); });
+window.addEventListener('keyup', (e) => {
+  keys.delete(e.code);
+  readKeys();
+});
 
 let dragging = false;
-let dragX = 0, dragY = 0;
+let dragX = 0;
+let dragY = 0;
 renderer.domElement.addEventListener('pointerdown', (e) => {
-  dragging = true; dragX = e.clientX; dragY = e.clientY;
+  dragging = true;
+  dragX = e.clientX;
+  dragY = e.clientY;
 });
 window.addEventListener('pointermove', (e) => {
   if (!dragging) return;
   const dx = e.clientX - dragX;
   const dy = e.clientY - dragY;
-  dragX = e.clientX; dragY = e.clientY;
+  dragX = e.clientX;
+  dragY = e.clientY;
   camYaw -= dx * 0.005;
   camPitch = Math.max(0.08, Math.min(1.1, camPitch + dy * 0.004));
   lastDrag = performance.now();
@@ -135,7 +142,10 @@ continueBtn.addEventListener('click', () => {
 });
 startBtn.addEventListener('click', () => {
   audio.ensure();
-  if (save.job >= JOBS.length) { bank.money = save.money; missions.startJob(0); }
+  if (save.job >= JOBS.length) {
+    bank.money = save.money;
+    missions.startJob(0);
+  }
   beginPlay();
 });
 retryBtn.addEventListener('click', () => {
@@ -145,8 +155,12 @@ retryBtn.addEventListener('click', () => {
 });
 nextBtn.addEventListener('click', () => {
   completeEl.classList.add('hidden');
-  if (missions.done) { state = 'menu'; menuEl.classList.remove('hidden'); }
-  else beginPlay();
+  if (missions.done) {
+    state = 'menu';
+    menuEl.classList.remove('hidden');
+  } else {
+    beginPlay();
+  }
 });
 
 function beginPlay() {
@@ -202,17 +216,16 @@ function setCamera(x, z, heading, dist, height) {
   camPitch = 0.32;
   camDist = dist;
   camHeight = height;
-  const tx = x, tz = z;
-  camera.position.set(tx + Math.sin(camYaw) * dist, height, tz + Math.cos(camYaw) * dist);
-  camera.lookAt(tx, 2, tz);
+  camera.position.set(x + Math.sin(camYaw) * dist, height, z + Math.cos(camYaw) * dist);
+  camera.lookAt(x, 2, z);
 }
 
 function followCamera(dt) {
   const target = player.inCar ? player.inCar.pos : player.pos;
   const heading = player.inCar ? player.inCar.heading : player.heading;
-  // When driving and the mouse has been still, ease the camera behind the car.
+  // Driving with a still mouse: ease the camera around behind the car.
   if (player.inCar && performance.now() - lastDrag > 1500) {
-    let want = heading + Math.PI;
+    const want = heading + Math.PI;
     let diff = want - camYaw;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
@@ -240,7 +253,11 @@ if (shot) {
   menuEl.classList.add('hidden');
   state = 'playing';
   const ctx = {
-    player, vehicles, police, missions, money: bank.money,
+    player,
+    vehicles,
+    police,
+    missions,
+    money: bank.money,
     toast: (t) => hud.toast(t),
     setCamera: (x, z, h, d, ht) => setCamera(x, z, h, d, ht),
   };
@@ -269,44 +286,45 @@ function tick() {
     readKeys();
     const inCar = !!player.inCar;
 
-    // Dana on foot: walk, jump, punch. Peds are the hittables.
-    if (!inCar) {
-      const alive = peds.list.filter((p) => !p.fallen);
-      player.update(dt, input, camYaw, city, alive, (ped) => {
-        peds.fall(ped);
-        police.addWanted(1);
-        audio.punch();
-        if (rand() < 0.5) {
-          bank.money += 20;
-          hud.toast('+$20 pocket money');
-        } else {
-          hud.toast('He won’t forget that.');
-        }
-      });
-      input.punch = false;
-    } else {
-      // In shot mode the car holds its posed cruising speed (no keys are pressed).
-      if (shot && player.inCar && player.inCar.shotCruise) {
-        player.inCar.speed = player.inCar.shotCruise;
-      }
-      vehicles.drivePlayer(dt, input, (speed) => {
-        player.health = Math.max(0, player.health - 5);
-        audio.crash();
-        hud.toast('Ouch — that wall came out of nowhere.');
-      });
-      input.punch = false;
-    }
-
-    // Car hits a pedestrian: they go down and the law notices.
-    if (vehicles.playerCar) {
-      const car = vehicles.playerCar;
-      for (const ped of peds.list) {
-        if (ped.fallen) continue;
-        if (Math.hypot(ped.pos.x - car.pos.x, ped.pos.z - car.pos.z) < 2.6 && Math.abs(car.speed) > 3) {
+    // Shot mode freezes the pose: no driving, no police chase, no mission
+    // progress — traffic and pedestrians keep moving so the frame stays alive,
+    // and the camera still eases onto its posed spot.
+    if (!shot) {
+      if (!inCar) {
+        // Dana on foot: walk, jump, punch. Peds are the hittables.
+        const standing = peds.list.filter((p) => !p.fallen);
+        player.update(dt, input, camYaw, city, standing, (ped) => {
           peds.fall(ped);
-          police.addWanted(2);
+          police.addWanted(1);
+          audio.punch();
+          if (rand() < 0.5) {
+            bank.money += 20;
+            hud.toast('+$20 pocket money');
+          } else {
+            hud.toast('He won’t forget that.');
+          }
+        });
+        input.punch = false;
+      } else {
+        vehicles.drivePlayer(dt, input, () => {
+          player.health = Math.max(0, player.health - 5);
           audio.crash();
-          hud.toast('You hit a pedestrian! Wanted up.');
+          hud.toast('Ouch — that wall came out of nowhere.');
+        });
+        input.punch = false;
+      }
+
+      // The player's car running a pedestrian down: they fall, the law notices.
+      if (vehicles.playerCar) {
+        const car = vehicles.playerCar;
+        for (const ped of peds.list) {
+          if (ped.fallen) continue;
+          if (Math.hypot(ped.pos.x - car.pos.x, ped.pos.z - car.pos.z) < 2.6 && Math.abs(car.speed) > 3) {
+            peds.fall(ped);
+            police.addWanted(2);
+            audio.crash();
+            hud.toast('You hit a pedestrian! Wanted up.');
+          }
         }
       }
     }
@@ -323,10 +341,13 @@ function tick() {
     const target = player.inCar
       ? { pos: player.inCar.pos, inCar: true, speed: player.inCar.speed }
       : { pos: player.pos, inCar: false, speed: player.speed };
-    const outcome = police.update(dt, target, vehicles, shot ? null : (ramSpeed) => {
-      player.health = Math.max(0, player.health - 8);
-      audio.crash();
-    });
+    // Frozen in shot mode: the posed cops stay where the shot put them.
+    const outcome = shot
+      ? null
+      : police.update(dt, target, vehicles, () => {
+        player.health = Math.max(0, player.health - 8);
+        audio.crash();
+      });
     if (!shot && (outcome === 'busted' || player.health <= 0)) {
       state = 'busted';
       bustedEl.classList.remove('hidden');
@@ -337,10 +358,7 @@ function tick() {
 
     // Missions (frozen in shot mode so the posed objective stays on screen).
     if (state === 'playing' && !shot) {
-      const ctx = {
-        player, vehicles, police, money: bank.money,
-        toast: (t) => hud.toast(t), input,
-      };
+      const ctx = { player, vehicles, police, money: bank.money, toast: (t) => hud.toast(t), input };
       const result = missions.update(dt, ctx);
       bank.money = ctx.money;
       if (result) {
@@ -363,7 +381,7 @@ function tick() {
       }
     }
 
-    // Health slowly recovers when the heat is off.
+    // Health slowly comes back when the heat is off.
     if (police.wanted === 0 && player.health < 100) player.health = Math.min(100, player.health + 2 * dt);
 
     // Sound follows the world.
@@ -371,7 +389,7 @@ function tick() {
     else audio.engine(false, 0);
     audio.siren(police.sirenOn && state === 'playing');
 
-    // Camera + HUD.
+    // Camera and HUD.
     followCamera(dt);
     const marker = missions.marker.visible
       ? { x: missions.marker.position.x, z: missions.marker.position.z }

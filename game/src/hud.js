@@ -1,5 +1,5 @@
-// HUD: the DOM panels (money, health, wanted stars, objective, speed) and the
-// 2D minimap canvas drawn top-down: roads, beach and marina, the player arrow,
+// HUD: the DOM panels (cash, health, wanted stars, objective, speed) and the
+// 2D minimap drawn top-down — roads, beach and marina, the player arrow,
 // police as red dots, traffic as grey dots and the mission marker pulsing gold.
 import { HALF, roadCenter } from './city.js';
 
@@ -39,7 +39,9 @@ export class HUD {
     }
     if (state.wanted !== this.lastWanted) {
       let stars = '';
-      for (let i = 0; i < 5; i++) stars += i < state.wanted ? '★' : '<span class="dim">★</span>';
+      for (let i = 0; i < 5; i++) {
+        stars += i < state.wanted ? '★' : '<span class="dim">★</span>';
+      }
       this.starsEl.innerHTML = stars;
       this.lastWanted = state.wanted;
     }
@@ -54,23 +56,20 @@ export class HUD {
     const g = this.mctx;
     const S = this.map.width;
     const span = HALF * 2 + 130;
-    const toMap = (x, z) => [
-      ((x + span / 2) / span) * S,
-      ((z + span / 2) / span) * S,
-    ];
+    const toMap = (x, z) => [((x + span / 2) / span) * S, ((z + span / 2) / span) * S];
     g.clearRect(0, 0, S, S);
     g.fillStyle = '#16242e';
     g.fillRect(0, 0, S, S);
-    // Water: sea to the south, marina to the east.
+    // Water: the sea to the south, the marina to the east.
     g.fillStyle = '#1f7a6d';
-    const [bx] = toMap(0, HALF + 40);
-    g.fillRect(0, bx, S, S - bx);
-    const [mx] = toMap(HALF + 10, 0);
-    g.fillRect(mx, 0, S - mx, S);
+    const [, seaTop] = toMap(0, HALF + 40);
+    g.fillRect(0, seaTop, S, S - seaTop);
+    const [harbourLeft] = toMap(HALF + 10, 0);
+    g.fillRect(harbourLeft, 0, S - harbourLeft, S);
     // Sand beach.
     g.fillStyle = '#cbb878';
-    const [sx0, sy0] = toMap(-HALF, HALF);
-    g.fillRect(0, sy0, S, S - sy0);
+    const [, beachTop] = toMap(-HALF, HALF);
+    g.fillRect(0, beachTop, S, S - beachTop);
     // Roads.
     g.strokeStyle = '#5a636b';
     g.lineWidth = 4;
@@ -80,16 +79,17 @@ export class HUD {
       const [, rz] = toMap(0, roadCenter(i));
       g.beginPath(); g.moveTo(0, rz); g.lineTo(S, rz); g.stroke();
     }
-    // Mission marker (pulsing gold).
+    // Mission marker, pulsing gold.
     if (state.marker) {
-      const [mx2, my2] = toMap(state.marker.x, state.marker.z);
+      const [mx, my] = toMap(state.marker.x, state.marker.z);
       const pulse = 5 + Math.sin(performance.now() / 250) * 2;
       g.fillStyle = '#ffd166';
-      g.beginPath(); g.arc(mx2, my2, pulse, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = '#08222e'; g.lineWidth = 1.5;
-      g.beginPath(); g.arc(mx2, my2, pulse, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.arc(mx, my, pulse, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#08222e';
+      g.lineWidth = 1.5;
+      g.beginPath(); g.arc(mx, my, pulse, 0, Math.PI * 2); g.stroke();
     }
-    // Traffic (grey) and police (red).
+    // Traffic grey, police red.
     for (const t of state.traffic) {
       const [tx, ty] = toMap(t.x, t.z);
       g.fillStyle = '#9aa5ad';
@@ -100,15 +100,18 @@ export class HUD {
       g.fillStyle = '#ef476f';
       g.beginPath(); g.arc(px, py, 3.5, 0, Math.PI * 2); g.fill();
     }
-    // Player arrow (gold). Map x is right, map y is down, so a heading of h
-    // (forward = (sin h, cos h) in world) points the arrow by rotating PI - h.
+    // Player arrow (gold). A heading of h means forward (sin h, cos h), so the
+    // arrow on a map where +y is down points at angle PI - h.
     const [px, py] = toMap(state.player.x, state.player.z);
     g.save();
     g.translate(px, py);
     g.rotate(Math.PI - state.player.heading);
     g.fillStyle = '#ffd166';
     g.beginPath();
-    g.moveTo(0, -7); g.lineTo(5, 5); g.lineTo(-5, 5); g.closePath();
+    g.moveTo(0, -7);
+    g.lineTo(5, 5);
+    g.lineTo(-5, 5);
+    g.closePath();
     g.fill();
     g.restore();
   }

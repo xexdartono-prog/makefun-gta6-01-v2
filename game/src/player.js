@@ -1,90 +1,98 @@
-// Dana Cruz on foot: a simple articulated figure (boxes for torso, head, limbs)
-// with a walk-cycle swing, jump physics and a short punch. Movement is relative to
-// the camera yaw; the camera itself lives in main.js.
+// Dana Cruz on foot: a boxy articulated figure with a walk cycle, a jump and
+// a short punch. She moves relative to the camera, so W always runs away from
+// the lens. Driving is the vehicle's job; this file only handles the body.
 import * as THREE from 'three';
 import { resolveBuildingCollision } from './city.js';
 
-const WALK_SPEED = 7;
-const RUN_SPEED = 11;
+const WALK = 7;
+const SPRINT = 11;
 
-function limbMat(color) {
+function cloth(color) {
   return new THREE.MeshLambertMaterial({ color });
 }
 
 export class Player {
   constructor(scene) {
     this.pos = new THREE.Vector3(0, 0, 116);
-    this.heading = 0;       // radians, facing direction
-    this.vy = 0;            // vertical velocity for jumps
+    this.heading = 0;
+    this.vy = 0;
     this.grounded = true;
     this.speed = 0;
     this.punchTimer = 0;
     this.punchCooldown = 0;
     this.walkPhase = 0;
     this.health = 100;
-    this.inCar = null;      // Vehicle when driving, else null
+    this.inCar = null;
 
-    const g = new THREE.Group();
-    g.name = 'dana';
-    const skin = limbMat(0xc68e5e);
-    const shirt = limbMat(0xef476f);
-    const pants = limbMat(0x264653);
-    const hair = limbMat(0x1d1a16);
+    const skin = cloth(0xc68e5e);
+    const top = cloth(0xef476f);
+    const jeans = cloth(0x264653);
+    const hair = cloth(0x1d1a16);
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.5), shirt);
+    const body = new THREE.Group();
+    body.name = 'dana';
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.5), top);
     torso.position.y = 1.35;
     torso.castShadow = true;
-    g.add(torso);
+    body.add(torso);
+
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), skin);
     head.position.y = 2.2;
     head.castShadow = true;
-    g.add(head);
-    const hairM = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.25, 0.6), hair);
-    hairM.position.y = 2.5;
-    g.add(hairM);
+    body.add(head);
+
+    const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.25, 0.6), hair);
+    fringe.position.y = 2.5;
+    body.add(fringe);
+
     this.armL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.95, 0.28), skin);
     this.armL.position.set(-0.62, 1.35, 0);
-    g.add(this.armL);
+    body.add(this.armL);
     this.armR = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.95, 0.28), skin);
     this.armR.position.set(0.62, 1.35, 0);
-    g.add(this.armR);
-    this.legL = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.85, 0.34), pants);
-    this.legL.position.set(-0.24, 0.45, 0);
-    g.add(this.legL);
-    this.legR = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.85, 0.34), pants);
-    this.legR.position.set(0.24, 0.45, 0);
-    g.add(this.legR);
+    body.add(this.armR);
 
-    this.group = g;
+    this.legL = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.85, 0.34), jeans);
+    this.legL.position.set(-0.24, 0.45, 0);
+    body.add(this.legL);
+    this.legR = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.85, 0.34), jeans);
+    this.legR.position.set(0.24, 0.45, 0);
+    body.add(this.legR);
+
+    this.group = body;
     this.group.position.copy(this.pos);
-    scene.add(g);
+    scene.add(body);
   }
 
-  // input: {f,b,l,r,jump,punch} booleans; camYaw: camera facing; dt seconds.
-  // onPunchHit: called with (target) when a punch lands on something hittable.
+  // input: {f,b,l,r,jump,punch,sprint}; camYaw: where the camera looks.
+  // hittables: things a punch can land on; onPunchHit(target) fires on a hit.
   update(dt, input, camYaw, city, hittables, onPunchHit) {
-    if (this.inCar) return; // driving is the vehicle's job
+    if (this.inCar) return;
     this.punchCooldown = Math.max(0, this.punchCooldown - dt);
 
-    let mx = 0, mz = 0;
+    // Camera-relative movement: forward is away from the camera.
+    let mx = 0;
+    let mz = 0;
     if (input.f) { mx += -Math.sin(camYaw); mz += -Math.cos(camYaw); }
     if (input.b) { mx += Math.sin(camYaw); mz += Math.cos(camYaw); }
     if (input.l) { mx += -Math.cos(camYaw); mz += Math.sin(camYaw); }
     if (input.r) { mx += Math.cos(camYaw); mz += -Math.sin(camYaw); }
     const len = Math.hypot(mx, mz);
-    const sprint = input.sprint ? RUN_SPEED : WALK_SPEED;
+    const pace = input.sprint ? SPRINT : WALK;
     if (len > 0.01) {
-      mx /= len; mz /= len;
-      this.speed = sprint;
-      this.pos.x += mx * sprint * dt;
-      this.pos.z += mz * sprint * dt;
+      mx /= len;
+      mz /= len;
+      this.speed = pace;
+      this.pos.x += mx * pace * dt;
+      this.pos.z += mz * pace * dt;
       this.heading = Math.atan2(mx, mz);
-      this.walkPhase += dt * sprint * 1.6;
+      this.walkPhase += dt * pace * 1.6;
     } else {
       this.speed = 0;
     }
 
-    // Jump + gravity.
+    // Jump and gravity.
     if (input.jump && this.grounded) {
       this.vy = 7.5;
       this.grounded = false;
@@ -92,15 +100,19 @@ export class Player {
     if (!this.grounded) {
       this.vy -= 22 * dt;
       this.pos.y += this.vy * dt;
-      if (this.pos.y <= 0) { this.pos.y = 0; this.vy = 0; this.grounded = true; }
+      if (this.pos.y <= 0) {
+        this.pos.y = 0;
+        this.vy = 0;
+        this.grounded = true;
+      }
     }
 
-    // Buildings block walking.
+    // Walls stop her.
     const fixed = resolveBuildingCollision(city, this.pos.x, this.pos.z, 0.7);
     this.pos.x = fixed.x;
     this.pos.z = fixed.z;
 
-    // Punch: a short forward arc; hits the first hittable in range.
+    // Punch: a forward arc, first hittable inside it goes down.
     if (input.punch && this.punchCooldown <= 0) {
       this.punchTimer = 0.22;
       this.punchCooldown = 0.45;
@@ -118,16 +130,12 @@ export class Player {
     }
     this.punchTimer = Math.max(0, this.punchTimer - dt);
 
-    // Pose: limbs swing with the walk phase; right arm snaps forward on a punch.
+    // Walk-cycle pose; the right arm snaps forward while punching.
     const swing = this.speed > 0 ? Math.sin(this.walkPhase) * 0.55 : 0;
     this.legL.rotation.x = swing;
     this.legR.rotation.x = -swing;
     this.armL.rotation.x = -swing;
-    if (this.punchTimer > 0) {
-      this.armR.rotation.x = -1.5;
-    } else {
-      this.armR.rotation.x = swing;
-    }
+    this.armR.rotation.x = this.punchTimer > 0 ? -1.5 : swing;
 
     this.group.position.copy(this.pos);
     this.group.rotation.y = this.heading;
